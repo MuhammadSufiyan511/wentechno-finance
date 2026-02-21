@@ -1,9 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  HiOutlineChartPie, HiOutlineGlobeAlt, HiOutlineShoppingBag,
-  HiOutlineCloud, HiOutlineAcademicCap, HiOutlineBookOpen,
-  HiOutlineOfficeBuilding, HiOutlineDocumentReport, HiOutlineX
+import {
+  HiOutlineOfficeBuilding,
+  HiOutlineDocumentReport,
+  HiOutlineX,
+  HiOutlineCurrencyDollar,
+  HiOutlineChartPie,
+  HiOutlineGlobeAlt,
+  HiOutlineShoppingBag,
+  HiOutlineCloud,
+  HiOutlineAcademicCap,
+  HiOutlineBookOpen
 } from 'react-icons/hi';
 
 const navItems = [
@@ -14,6 +21,8 @@ const navItems = [
   { path: '/physical-school', icon: HiOutlineAcademicCap, label: 'Physical School', color: 'text-amber-400' },
   { path: '/it-courses', icon: HiOutlineBookOpen, label: 'IT Courses', color: 'text-red-400' },
   { path: '/office', icon: HiOutlineOfficeBuilding, label: 'Office & General', color: 'text-gray-400' },
+  { path: '/finance', icon: HiOutlineCurrencyDollar, label: 'Advanced Finance', color: 'text-emerald-500' },
+  { path: '/approvals', icon: HiOutlineChartPie, label: 'Pending Approvals', color: 'text-yellow-400' },
   { path: '/reports', icon: HiOutlineDocumentReport, label: 'Reports & Export', color: 'text-cyan-400' },
 ];
 
@@ -61,8 +70,8 @@ const Sidebar = ({ isOpen, onClose }) => {
               onClick={onClose}
               className={({ isActive }) => `
                 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                ${isActive 
-                  ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30' 
+                ${isActive
+                  ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30'
                   : 'text-dark-300 hover:bg-dark-800 hover:text-white border border-transparent'}
               `}
             >

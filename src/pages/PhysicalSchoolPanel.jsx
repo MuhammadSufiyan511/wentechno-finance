@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { physicalSchoolAPI } from '../services/api';
 import SummaryCard from '../components/cards/SummaryCard';
 import DataTable, { CurrencyCell, StatusBadge } from '../components/tables/DataTable';
@@ -6,6 +7,9 @@ import { HiOutlineUserGroup, HiOutlineCash, HiOutlineExclamation, HiOutlineTrend
 import toast from 'react-hot-toast';
 
 const PhysicalSchoolPanel = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'students';
+
   const [data, setData] = useState({
     overview: null,
     students: [],
@@ -13,7 +17,6 @@ const PhysicalSchoolPanel = () => {
     defaulters: [],
     expenses: []
   });
-  const [activeTab, setActiveTab] = useState('students');
   const [showModal, setShowModal] = useState(null);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,12 @@ const PhysicalSchoolPanel = () => {
       setForm({});
       loadData();
     } catch (error) {
-      toast.error('Operation failed');
+      const serverError = error.response?.data;
+      if (serverError?.errors) {
+        serverError.errors.forEach(err => toast.error(err.msg));
+      } else {
+        toast.error(serverError?.message || 'Operation failed');
+      }
     }
   };
 
@@ -83,6 +91,7 @@ const PhysicalSchoolPanel = () => {
     { header: 'Amount', key: 'amount', render: (val) => <CurrencyCell value={val} /> },
     { header: 'Type', key: 'fee_type', render: (val) => <span className="badge-info capitalize">{val}</span> },
     { header: 'Month', key: 'month' },
+    { header: 'Approval', key: 'approval_status', render: (val) => <StatusBadge status={val} /> },
     { header: 'Status', key: 'status', render: (val) => <StatusBadge status={val} /> },
     { header: 'Date', key: 'paid_date', render: (val) => val ? new Date(val).toLocaleDateString() : '-' },
   ];
@@ -117,7 +126,7 @@ const PhysicalSchoolPanel = () => {
       {/* Tabs */}
       <div className="flex gap-1 bg-dark-800 p-1 rounded-lg overflow-x-auto">
         {['students', 'fees', 'defaulters'].map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => setSearchParams({ tab })}
             className={`px-4 py-2 rounded-md text-sm font-medium capitalize whitespace-nowrap transition-colors
               ${activeTab === tab ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white hover:bg-dark-700'}`}>
             {tab}
@@ -169,7 +178,7 @@ const PhysicalSchoolPanel = () => {
                     <div><label className="label">Phone</label>
                       <input className="input" value={form.phone || ''} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
                     <div><label className="label">Monthly Fee</label>
-                      <input type="number" className="input" required value={form.monthly_fee || ''} onChange={e => setForm({ ...form, monthly_fee: e.target.value })} /></div>
+                      <input type="number" step="0.01" min="0" className="input" required value={form.monthly_fee || ''} onChange={e => setForm({ ...form, monthly_fee: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Admission Date</label>
                     <input type="date" className="input" required value={form.admission_date || ''} onChange={e => setForm({ ...form, admission_date: e.target.value })} /></div>
@@ -183,7 +192,7 @@ const PhysicalSchoolPanel = () => {
                     </select></div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="label">Amount</label>
-                      <input type="number" className="input" required value={form.amount || ''} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
+                      <input type="number" step="0.01" min="0.01" className="input" required value={form.amount || ''} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
                     <div><label className="label">Fee Type</label>
                       <select className="select" value={form.fee_type || 'monthly'} onChange={e => setForm({ ...form, fee_type: e.target.value })}>
                         <option value="monthly">Monthly Fee</option>

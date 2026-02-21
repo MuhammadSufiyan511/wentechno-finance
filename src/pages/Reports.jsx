@@ -1,28 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { reportsAPI } from '../services/api';
 import SummaryCard from '../components/cards/SummaryCard';
 import { HiOutlineDownload, HiOutlineChartPie, HiOutlineDocumentText } from 'react-icons/hi';
 import toast from 'react-hot-toast';
 
 const Reports = () => {
+    const [searchParams, setSearchParams] = useSearchParams();
     const [loading, setLoading] = useState(false);
-    const [dateRange, setDateRange] = useState({
-        start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
-    });
 
-    const handleDownload = async (type) => {
+    // Sync with URL params
+    const startDate = searchParams.get('start') || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const endDate = searchParams.get('end') || new Date().toISOString().split('T')[0];
+
+    const setDateRange = (range) => {
+        const newParams = new URLSearchParams(searchParams);
+        if (range.start) newParams.set('start', range.start);
+        if (range.end) newParams.set('end', range.end);
+        setSearchParams(newParams);
+    };
+
+    const dateRange = { start: startDate, end: endDate };
+
+    const handleDownload = async (format, reportType) => {
         setLoading(true);
         try {
-            // In a real app, this would be a blob response
-            toast.success(`Generating ${type} report...`);
-            // Simulate download
-            setTimeout(() => {
-                toast.success('Report downloaded successfully');
-                setLoading(false);
-            }, 1500);
+            const params = {
+                year: new Date(dateRange.start).getFullYear(),
+                month: new Date(dateRange.start).getMonth() + 1
+            };
+
+            let response;
+            if (format === 'pdf') {
+                response = await reportsAPI.exportPDF(params);
+            } else {
+                response = await reportsAPI.exportExcel(params);
+            }
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `report-${reportType}-${params.year}-${params.month}.${format}`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            toast.success(`${reportType} exported successfully`);
         } catch (error) {
-            toast.error('Failed to generate report');
+            console.error('Download error:', error);
+            toast.error(`Failed to export ${reportType}`);
+        } finally {
             setLoading(false);
         }
     };
@@ -48,7 +75,7 @@ const Reports = () => {
                             <div><label className="label text-xs">Start Date</label><input type="date" className="input text-sm py-1" value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })} /></div>
                             <div><label className="label text-xs">End Date</label><input type="date" className="input text-sm py-1" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} /></div>
                         </div>
-                        <button onClick={() => handleDownload('P&L')} disabled={loading} className="btn-primary w-full justify-center">
+                        <button onClick={() => handleDownload('pdf', 'P&L')} disabled={loading} className="btn-primary w-full justify-center">
                             <HiOutlineDownload className="w-4 h-4 mr-2" /> {loading ? 'Processing...' : 'Export PDF'}
                         </button>
                     </div>
@@ -58,11 +85,11 @@ const Reports = () => {
                     <div className="p-3 bg-emerald-500/10 rounded-lg w-fit">
                         <HiOutlineChartPie className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <h3 className="text-lg font-semibold text-white">Tax Summary</h3>
-                    <p className="text-dark-400 text-sm">Summary of taxable income and deductible expenses for the selected period.</p>
+                    <h3 className="text-lg font-semibold text-white">Full Tax Summary</h3>
+                    <p className="text-dark-400 text-sm">Complete Excel workbook containing business unit summaries and transaction details.</p>
                     <div className="pt-4">
-                        <button onClick={() => handleDownload('Tax')} className="btn-success w-full justify-center">
-                            <HiOutlineDownload className="w-4 h-4 mr-2" /> Export Excel
+                        <button onClick={() => handleDownload('xlsx', 'Full_Financials')} disabled={loading} className="btn-success w-full justify-center">
+                            <HiOutlineDownload className="w-4 h-4 mr-2" /> {loading ? 'Processing...' : 'Export Excel'}
                         </button>
                     </div>
                 </div>

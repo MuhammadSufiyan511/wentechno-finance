@@ -1,30 +1,34 @@
 import { Router } from 'express';
-import { query } from '../config/db.js';
+import { query as _query } from '../config/db.js';
 import auth from '../middleware/auth.js';
-import { body, validationResult } from 'express-validator';
+import { logAudit } from '../middleware/auditTrail.js';
+import { checkPeriodClose } from '../middleware/checkPeriodClose.js';
+import { approvalRequired } from '../middleware/approvalRequired.js';
+import { validate, transactionRules, courseRules, trainerRules } from '../middleware/validator.js';
 
 const router = Router();
-const BU_ID = 5;
+const BU_ID = 5; // IT Courses business unit ID
+const MODULE = 'it_courses';
 
 // GET /api/it-courses/overview
-router.get('/overview', auth, async (req, res) => {
+router.get('/overview', auth, async (req, res, next) => {
   try {
     const currentYear = new Date().getFullYear();
 
-    const [courseStats] = await query(`
+    const [courseStats] = await _query(`
       SELECT COUNT(*) as total_courses,
              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_courses
       FROM courses
     `);
 
-    const [batchStats] = await query(`
+    const [batchStats] = await _query(`
       SELECT COUNT(*) as total_batches,
              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_batches,
              SUM(current_students) as total_enrolled
       FROM batches
     `);
 
-    const [enrollmentStats] = await query(`
+    const [enrollmentStats] = await _query(`
       SELECT 
         COUNT(*) as total_enrollments,
         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_students,
@@ -37,7 +41,7 @@ router.get('/overview', auth, async (req, res) => {
       FROM enrollments
     `);
 
-    const [courseRevenue] = await query(`
+    const [courseRevenue] = await _query(`
       SELECT c.name, c.fee, COUNT(e.id) as students, COALESCE(SUM(e.fee_paid), 0) as revenue
       FROM courses c
       LEFT JOIN batches b ON c.id = b.course_id
@@ -46,17 +50,17 @@ router.get('/overview', auth, async (req, res) => {
       ORDER BY revenue DESC
     `);
 
-    const [yearlyRevenue] = await query(
+    const [yearlyRevenue] = await _query(
       'SELECT COALESCE(SUM(amount), 0) as total FROM revenues WHERE business_unit_id = ? AND YEAR(date) = ?',
       [BU_ID, currentYear]
     );
 
-    const [yearlyExpenses] = await query(
+    const [yearlyExpenses] = await _query(
       'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE business_unit_id = ? AND YEAR(date) = ?',
       [BU_ID, currentYear]
     );
 
-    const [trainerStats] = await query(`
+    const [trainerStats] = await _query(`
       SELECT t.name, t.specialization, COUNT(b.id) as batches_count, 
              COALESCE(SUM(b.current_students), 0) as total_students
       FROM trainers t
@@ -88,39 +92,49 @@ router.get('/overview', auth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('IT Courses overview error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // --- COURSES ---
-router.get('/courses', auth, async (req, res) => {
+router.get('/courses', auth, async (req, res, next) => {
   try {
-    const [courses] = await query('SELECT * FROM courses ORDER BY name');
+    const [courses] = await _query('SELECT * FROM courses ORDER BY name');
     res.json({ success: true, data: courses });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.post('/courses', auth, async (req, res) => {
+router.post('/courses', auth, validate(courseRules), checkPeriodClose, async (req, res, next) => {
   try {
     const { name, code, duration, duration_hours, fee, category, certificate_cost, description } = req.body;
-    const [result] = await query(
+    const [result] = await _query(
       'INSERT INTO courses (name, code, duration, duration_hours, fee, category, certificate_cost, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [name, code, duration, duration_hours, fee, category, certificate_cost || 0, description]
     );
-    const [course] = await query('SELECT * FROM courses WHERE id = ?', [result.insertId]);
+    const [course] = await _query('SELECT * FROM courses WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: 'courses',
+      entityId: result.insertId,
+      newValues: course[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: course[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // --- BATCHES ---
-router.get('/batches', auth, async (req, res) => {
+router.get('/batches', auth, async (req, res, next) => {
   try {
-    const [batches] = await query(`
+    const [batches] = await _query(`
       SELECT b.*, c.name as course_name, c.fee as course_fee, t.name as trainer_name
       FROM batches b
       JOIN courses c ON b.course_id = c.id
@@ -129,28 +143,39 @@ router.get('/batches', auth, async (req, res) => {
     `);
     res.json({ success: true, data: batches });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.post('/batches', auth, async (req, res) => {
+router.post('/batches', auth, checkPeriodClose, async (req, res, next) => {
   try {
     const { course_id, trainer_id, batch_name, batch_code, start_date, end_date, timing, max_students } = req.body;
-    const [result] = await query(
+    const [result] = await _query(
       'INSERT INTO batches (course_id, trainer_id, batch_name, batch_code, start_date, end_date, timing, max_students) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [course_id, trainer_id, batch_name, batch_code, start_date, end_date, timing, max_students || 30]
     );
-    const [batch] = await query('SELECT * FROM batches WHERE id = ?', [result.insertId]);
+    const [batch] = await _query('SELECT * FROM batches WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: 'batches',
+      entityId: result.insertId,
+      newValues: batch[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: batch[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // --- ENROLLMENTS ---
-router.get('/enrollments', auth, async (req, res) => {
+router.get('/enrollments', auth, async (req, res, next) => {
   try {
-    const [enrollments] = await query(`
+    const [enrollments] = await _query(`
       SELECT e.*, b.batch_name, c.name as course_name
       FROM enrollments e
       JOIN batches b ON e.batch_id = b.id
@@ -159,76 +184,122 @@ router.get('/enrollments', auth, async (req, res) => {
     `);
     res.json({ success: true, data: enrollments });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.post('/enrollments', auth, async (req, res) => {
+router.post('/enrollments', auth, validate(transactionRules), checkPeriodClose, approvalRequired, async (req, res, next) => {
   try {
     const { batch_id, student_name, phone, email, total_fee, fee_paid, discount, enrollment_date } = req.body;
 
-    const [result] = await query(
+    const [result] = await _query(
       `INSERT INTO enrollments (batch_id, student_name, phone, email, total_fee, fee_paid, discount, status, enrollment_date)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [batch_id, student_name, phone, email, total_fee, fee_paid || 0, discount || 0, enrollment_date]
     );
 
     // Update batch student count
-    await query('UPDATE batches SET current_students = current_students + 1 WHERE id = ?', [batch_id]);
+    await _query('UPDATE batches SET current_students = current_students + 1 WHERE id = ?', [batch_id]);
 
     // Record revenue
     if (fee_paid > 0) {
-      await query(
-        'INSERT INTO revenues (business_unit_id, category, amount, description, date, payment_status) VALUES (?, ?, ?, ?, ?, ?)',
+      await _query(
+        'INSERT INTO revenues (business_unit_id, category, amount, description, date, payment_status, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [BU_ID, 'Course Fee', fee_paid, `Enrollment: ${student_name}`, enrollment_date,
-         fee_paid >= total_fee ? 'paid' : 'partial']
+          fee_paid >= total_fee ? 'paid' : 'partial', req.approvalStatus]
       );
+
+      if (req.requiresApproval) {
+        // Track approval if needed
+      }
     }
 
-    const [enrollment] = await query('SELECT * FROM enrollments WHERE id = ?', [result.insertId]);
+    const [enrollment] = await _query('SELECT * FROM enrollments WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: 'enrollments',
+      entityId: result.insertId,
+      newValues: enrollment[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: enrollment[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // --- TRAINERS ---
-router.get('/trainers', auth, async (req, res) => {
+router.get('/trainers', auth, async (req, res, next) => {
   try {
-    const [trainers] = await query('SELECT * FROM trainers ORDER BY name');
+    const [trainers] = await _query('SELECT * FROM trainers ORDER BY name');
     res.json({ success: true, data: trainers });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.post('/trainers', auth, async (req, res) => {
+router.post('/trainers', auth, validate(trainerRules), checkPeriodClose, async (req, res, next) => {
   try {
     const { name, email, phone, specialization, salary, per_batch_fee, payment_type } = req.body;
-    const [result] = await query(
+    const [result] = await _query(
       'INSERT INTO trainers (name, email, phone, specialization, salary, per_batch_fee, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [name, email, phone, specialization, salary, per_batch_fee, payment_type || 'salary']
     );
-    const [trainer] = await query('SELECT * FROM trainers WHERE id = ?', [result.insertId]);
+    const [trainer] = await _query('SELECT * FROM trainers WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: 'trainers',
+      entityId: result.insertId,
+      newValues: trainer[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: trainer[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // Expenses
-router.post('/expenses', auth, async (req, res) => {
+router.post('/expenses', auth, validate(transactionRules), checkPeriodClose, approvalRequired, async (req, res, next) => {
   try {
     const { category, expense_type, amount, description, vendor, date } = req.body;
-    const [result] = await query(
-      'INSERT INTO expenses (business_unit_id, category, expense_type, amount, description, vendor, date) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [BU_ID, category, expense_type || 'variable', amount, description, vendor, date]
+    const [result] = await _query(
+      'INSERT INTO expenses (business_unit_id, category, expense_type, amount, description, vendor, date, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [BU_ID, category, expense_type || 'variable', amount, description, vendor, date, req.approvalStatus]
     );
-    const [exp] = await query('SELECT * FROM expenses WHERE id = ?', [result.insertId]);
+
+    if (req.requiresApproval) {
+      await _query(
+        'INSERT INTO approvals (entity_type, entity_id, requested_by, status, comments) VALUES (?, ?, ?, ?, ?)',
+        ['expense', result.insertId, req.user.id, 'pending', req.approvalReason]
+      );
+    }
+
+    const [exp] = await _query('SELECT * FROM expenses WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: 'expenses',
+      entityId: result.insertId,
+      newValues: exp[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: exp[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 export default router;
+

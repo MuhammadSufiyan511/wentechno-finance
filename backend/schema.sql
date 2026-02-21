@@ -42,7 +42,10 @@ CREATE TABLE revenues (
     reference_number VARCHAR(50),
     payment_method ENUM('cash','bank_transfer','card','online','cheque') DEFAULT 'cash',
     payment_status ENUM('paid','pending','partial','overdue') DEFAULT 'paid',
+    approval_status ENUM('pending', 'approved', 'rejected', 'na') DEFAULT 'na',
     date DATE NOT NULL,
+    bank_account_id INT,
+    tax_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
@@ -59,7 +62,10 @@ CREATE TABLE expenses (
     vendor VARCHAR(100),
     receipt_number VARCHAR(50),
     payment_method ENUM('cash','bank_transfer','card','online','cheque') DEFAULT 'cash',
+    approval_status ENUM('pending', 'approved', 'rejected', 'na') DEFAULT 'na',
     date DATE NOT NULL,
+    bank_account_id INT,
+    tax_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
@@ -106,6 +112,8 @@ CREATE TABLE projects (
     development_cost DECIMAL(15,2) DEFAULT 0,
     marketing_cost DECIMAL(15,2) DEFAULT 0,
     status ENUM('inquiry','active','in_progress','completed','cancelled') DEFAULT 'inquiry',
+    quote_id INT,
+    current_milestone VARCHAR(100),
     start_date DATE,
     end_date DATE,
     assigned_to VARCHAR(100),
@@ -124,6 +132,7 @@ CREATE TABLE invoices (
     tax_amount DECIMAL(15,2) DEFAULT 0,
     total_amount DECIMAL(15,2) NOT NULL,
     status ENUM('draft','sent','paid','pending','overdue','cancelled') DEFAULT 'draft',
+    approval_status ENUM('pending', 'approved', 'rejected', 'na') DEFAULT 'na',
     due_date DATE,
     paid_date DATE,
     notes TEXT,
@@ -145,6 +154,9 @@ CREATE TABLE subscriptions (
     end_date DATE,
     next_billing_date DATE,
     status ENUM('active','expired','cancelled','paused') DEFAULT 'active',
+    mrr DECIMAL(15,2) DEFAULT 0,
+    arr DECIMAL(15,2) DEFAULT 0,
+    renewal_date DATE,
     auto_renew BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -173,6 +185,100 @@ CREATE TABLE urbanfit_orders (
     delivered_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE quotes (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    client_id INT,
+    quote_number VARCHAR(50) NOT NULL UNIQUE,
+    subject VARCHAR(200),
+    total_amount DECIMAL(15,2) NOT NULL,
+    status ENUM('draft','sent','accepted','declined','expired') DEFAULT 'draft',
+    valid_until DATE,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+);
+
+CREATE TABLE project_milestones (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    project_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    amount DECIMAL(15,2) NOT NULL,
+    due_date DATE,
+    status ENUM('pending','completed','invoiced') DEFAULT 'pending',
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE urbanfit_returns (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    order_id INT NOT NULL,
+    reason TEXT,
+    amount DECIMAL(15,2) NOT NULL,
+    status ENUM('pending','approved','refunded') DEFAULT 'pending',
+    date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES urbanfit_orders(id) ON DELETE CASCADE
+);
+
+CREATE TABLE fee_challans (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    student_id INT NOT NULL,
+    challan_number VARCHAR(50) NOT NULL UNIQUE,
+    due_date DATE NOT NULL,
+    total_amount DECIMAL(15,2) NOT NULL,
+    status ENUM('unpaid','paid','partial','overdue') DEFAULT 'unpaid',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES school_students(id) ON DELETE CASCADE
+);
+
+CREATE TABLE course_attendance (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    batch_id INT NOT NULL,
+    student_id INT, -- If linked to student table potentially
+    student_name VARCHAR(100), -- Fallback or IT course student
+    date DATE NOT NULL,
+    status ENUM('present','absent','late') NOT NULL,
+    notes TEXT,
+    FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
+);
+
+CREATE TABLE instructor_payouts (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    trainer_id INT NOT NULL,
+    batch_id INT,
+    amount DECIMAL(15,2) NOT NULL,
+    payout_date DATE,
+    status ENUM('pending','approved','paid') DEFAULT 'pending',
+    notes TEXT,
+    FOREIGN KEY (trainer_id) REFERENCES trainers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE vendors (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    contact_person VARCHAR(100),
+    email VARCHAR(100),
+    phone VARCHAR(20),
+    address TEXT,
+    category VARCHAR(100),
+    status ENUM('active','inactive') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE purchase_orders (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    vendor_id INT NOT NULL,
+    business_unit_id INT NOT NULL,
+    po_number VARCHAR(50) NOT NULL UNIQUE,
+    total_amount DECIMAL(15,2) NOT NULL,
+    status ENUM('draft','sent','received','partial','cancelled') DEFAULT 'draft',
+    order_date DATE NOT NULL,
+    delivery_date DATE,
+    notes TEXT,
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
+    FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
 );
 
 CREATE TABLE urbanfit_daily_sales (
@@ -337,6 +443,131 @@ CREATE TABLE salaries (
     FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
 );
 
+-- ============ SYSTEM TABLES ============
+
+CREATE TABLE audit_logs (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    action ENUM('create', 'update', 'delete', 'login', 'logout', 'other') NOT NULL,
+    module VARCHAR(50) NOT NULL,
+    entity_id INT,
+    old_values JSON,
+    new_values JSON,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE period_closes (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    year INT NOT NULL,
+    month INT NOT NULL,
+    status ENUM('open', 'closed') DEFAULT 'closed',
+    closed_by INT,
+    closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    UNIQUE KEY (year, month),
+    FOREIGN KEY (closed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE approvals (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    entity_type ENUM('revenue', 'expense', 'invoice') NOT NULL,
+    entity_id INT NOT NULL,
+    requested_by INT,
+    action_by INT,
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    comments TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (requested_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (action_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE notifications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    type ENUM('info', 'success', 'warning', 'error') DEFAULT 'info',
+    title VARCHAR(100) NOT NULL,
+    message TEXT NOT NULL,
+    link VARCHAR(255),
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE bank_accounts (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    business_unit_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    account_number VARCHAR(50),
+    bank_name VARCHAR(100),
+    balance DECIMAL(15,2) DEFAULT 0,
+    type ENUM('bank', 'cash', 'mobile_wallet') DEFAULT 'bank',
+    currency VARCHAR(3) DEFAULT 'PKR',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
+);
+
+CREATE TABLE budgets (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    business_unit_id INT NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    planned_amount DECIMAL(15,2) NOT NULL,
+    month INT NOT NULL,
+    year INT NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY (business_unit_id, category, month, year),
+    FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
+);
+
+CREATE TABLE tax_configs (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    business_unit_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    rate DECIMAL(5,2) NOT NULL,
+    type ENUM('sales', 'withholding', 'income', 'vat') DEFAULT 'sales',
+    is_active BOOLEAN DEFAULT TRUE,
+    FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE CASCADE
+);
+
+CREATE TABLE scenarios (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE scenario_items (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    scenario_id INT NOT NULL,
+    type ENUM('revenue', 'expense') NOT NULL,
+    category VARCHAR(100),
+    amount DECIMAL(15,2) NOT NULL,
+    projected_date DATE,
+    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE reconciliations (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    bank_account_id INT NOT NULL,
+    statement_date DATE NOT NULL,
+    statement_balance DECIMAL(15,2) NOT NULL,
+    system_balance DECIMAL(15,2) NOT NULL,
+    status ENUM('pending', 'completed') DEFAULT 'pending',
+    reconciled_by INT,
+    reconciled_at TIMESTAMP,
+    FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (reconciled_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- ============ INDEXES ============
 
 CREATE INDEX idx_revenues_date ON revenues(date);
@@ -349,6 +580,9 @@ CREATE INDEX idx_invoices_status ON invoices(status);
 CREATE INDEX idx_fee_collections_status ON fee_collections(status);
 CREATE INDEX idx_enrollments_status ON enrollments(status);
 CREATE INDEX idx_salaries_month_year ON salaries(month, year);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_audit_logs_module_entity ON audit_logs(module, entity_id);
+
 
 -- ============ VIEWS ============
 

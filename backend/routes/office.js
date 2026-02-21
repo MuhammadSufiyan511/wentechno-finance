@@ -1,12 +1,17 @@
 import { Router } from 'express';
 import { query as _query } from '../config/db.js';
 import auth from '../middleware/auth.js';
+import { logAudit } from '../middleware/auditTrail.js';
+import { checkPeriodClose } from '../middleware/checkPeriodClose.js';
+import { approvalRequired } from '../middleware/approvalRequired.js';
+import { validate, transactionRules, salaryRules } from '../middleware/validator.js';
 
 const router = Router();
 const BU_ID = 6;
+const MODULE = 'office_expenses';
 
 // GET /api/office/overview
-router.get('/overview', auth, async (req, res) => {
+router.get('/overview', auth, async (req, res, next) => {
   try {
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth() + 1;
@@ -56,13 +61,12 @@ router.get('/overview', auth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Office overview error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // GET expenses list
-router.get('/expenses', auth, async (req, res) => {
+router.get('/expenses', auth, async (req, res, next) => {
   try {
     const { year, month, category, expense_type } = req.query;
     let query = 'SELECT * FROM expenses WHERE business_unit_id = ?';
@@ -77,47 +81,115 @@ router.get('/expenses', auth, async (req, res) => {
     const [expenses] = await _query(query, params);
     res.json({ success: true, data: expenses });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.post('/expenses', auth, async (req, res) => {
+router.post('/expenses', auth, validate(transactionRules), checkPeriodClose, approvalRequired, async (req, res, next) => {
   try {
     const { category, sub_category, expense_type, amount, description, vendor, receipt_number, payment_method, date } = req.body;
     const [result] = await _query(
-      `INSERT INTO expenses (business_unit_id, category, sub_category, expense_type, amount, description, vendor, receipt_number, payment_method, date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [BU_ID, category, sub_category, expense_type || 'fixed', amount, description, vendor, receipt_number, payment_method || 'cash', date]
+      `INSERT INTO expenses (business_unit_id, category, sub_category, expense_type, amount, description, vendor, receipt_number, payment_method, date, approval_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [BU_ID, category, sub_category, expense_type || 'fixed', amount, description, vendor, receipt_number, payment_method || 'cash', date, req.approvalStatus]
     );
+
+    if (req.requiresApproval) {
+      await _query(
+        'INSERT INTO approvals (entity_type, entity_id, requested_by, status, comments) VALUES (?, ?, ?, ?, ?)',
+        ['expense', result.insertId, req.user.id, 'pending', req.approvalReason]
+      );
+    }
+
     const [exp] = await _query('SELECT * FROM expenses WHERE id = ?', [result.insertId]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'create',
+      module: MODULE,
+      entityId: result.insertId,
+      newValues: exp[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.status(201).json({ success: true, data: exp[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.put('/expenses/:id', auth, async (req, res) => {
+router.put('/expenses/:id', auth, checkPeriodClose, approvalRequired, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const fields = req.body;
+    const [oldExp] = await _query('SELECT * FROM expenses WHERE id = ?', [id]);
+
+    if (oldExp.length === 0) {
+      return res.status(404).json({ success: false, message: 'Expense not found' });
+    }
+
+    const fields = { ...req.body, approval_status: req.approvalStatus };
     const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
     const values = Object.values(fields);
+
     await _query(`UPDATE expenses SET ${updates} WHERE id = ?`, [...values, id]);
-    const [exp] = await _query('SELECT * FROM expenses WHERE id = ?', [id]);
-    res.json({ success: true, data: exp[0] });
+
+    if (req.requiresApproval) {
+      const [existing] = await _query('SELECT id FROM approvals WHERE entity_type = "expense" AND entity_id = ? AND status = "pending"', [id]);
+      if (existing.length === 0) {
+        await _query(
+          'INSERT INTO approvals (entity_type, entity_id, requested_by, status, comments) VALUES (?, ?, ?, ?, ?)',
+          ['expense', id, req.user.id, 'pending', req.approvalReason]
+        );
+      }
+    }
+
+    const [newExp] = await _query('SELECT * FROM expenses WHERE id = ?', [id]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'update',
+      module: MODULE,
+      entityId: id,
+      oldValues: oldExp[0],
+      newValues: newExp[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.json({ success: true, data: newExp[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
-router.delete('/expenses/:id', auth, async (req, res) => {
+router.delete('/expenses/:id', auth, checkPeriodClose, async (req, res, next) => {
   try {
-    await _query('DELETE FROM expenses WHERE id = ? AND business_unit_id = ?', [req.params.id, BU_ID]);
+    const { id } = req.params;
+    const [oldExp] = await _query('SELECT * FROM expenses WHERE id = ? AND business_unit_id = ?', [id, BU_ID]);
+
+    if (oldExp.length === 0) {
+      return res.status(404).json({ success: false, message: 'Expense not found' });
+    }
+
+    await _query('DELETE FROM expenses WHERE id = ? AND business_unit_id = ?', [id, BU_ID]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'delete',
+      module: MODULE,
+      entityId: id,
+      oldValues: oldExp[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
     res.json({ success: true, message: 'Expense deleted' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
+
 
 // --- SALARIES (global) ---
 router.get('/salaries', auth, async (req, res) => {
@@ -140,16 +212,16 @@ router.get('/salaries', auth, async (req, res) => {
   }
 });
 
-router.post('/salaries', auth, async (req, res) => {
+router.post('/salaries', auth, validate(salaryRules), checkPeriodClose, async (req, res) => {
   try {
-    const { business_unit_id, employee_name, designation, department, base_salary, 
-            bonus, deductions, month, year, payment_method } = req.body;
+    const { business_unit_id, employee_name, designation, department, base_salary,
+      bonus, deductions, month, year, payment_method } = req.body;
     const [result] = await _query(
       `INSERT INTO salaries (business_unit_id, employee_name, designation, department, base_salary, 
        bonus, deductions, month, year, status, paid_date, payment_method) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', CURDATE(), ?)`,
       [business_unit_id, employee_name, designation, department, base_salary,
-       bonus || 0, deductions || 0, month, year, payment_method || 'bank_transfer']
+        bonus || 0, deductions || 0, month, year, payment_method || 'bank_transfer']
     );
 
     // Also record as expense

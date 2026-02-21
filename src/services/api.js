@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -120,6 +120,71 @@ export const reportsAPI = {
   getYearly: (params) => api.get('/reports/yearly', { params }),
   exportExcel: (params) => api.get('/reports/export/excel', { params, responseType: 'blob' }),
   exportPDF: (params) => api.get('/reports/export/pdf', { params, responseType: 'blob' }),
+};
+
+// Approvals
+export const approvalsAPI = {
+  getPending: () => api.get('/approvals/pending'),
+  takeAction: (id, action, comments) => api.post(`/approvals/${id}/action`, { action, comments }),
+};
+
+// Notifications
+export const notificationsAPI = {
+  getRecent: () => api.get('/notifications'),
+  markAsRead: (id) => api.put(`/notifications/${id}/read`),
+  markAllRead: () => api.put('/notifications/read-all'),
+};
+
+// Finance
+export const financeAPI = {
+  getBankAccounts: () => api.get('/finance/bank-accounts'),
+  createBankAccount: (data) => api.post('/finance/bank-accounts', data),
+  getBudgets: (params) => api.get('/finance/budgets', { params }),
+  saveBudget: (data) => api.post('/finance/budgets', data),
+  getTaxes: () => api.get('/finance/taxes'),
+  createTax: (data) => api.post('/finance/taxes', data),
+  getCashflowForecast: (days) => api.get('/finance/cashflow/forecast', { params: { days } }),
+  getScenarios: () => api.get('/finance/scenarios'),
+  createScenario: (data) => api.post('/finance/scenarios', data),
+  getAging: (params) => api.get('/finance/aging', { params }),
+  getProfitability: (params) => api.get('/finance/profitability', { params }),
+  runRecurringBilling: () => api.post('/finance/recurring/run'),
+};
+
+// --- Operational Workflows ---
+export const opsAPI = {
+  // Ecom
+  getQuotes: () => api.get('/ecom-ops/quotes'),
+  createQuote: (data) => api.post('/ecom-ops/quotes', data),
+  getMilestones: (projectId) => api.get(`/ecom-ops/projects/${projectId}/milestones`),
+  createMilestone: (projectId, data) => api.post(`/ecom-ops/projects/${projectId}/milestones`, data),
+  invoiceMilestone: (id) => api.post(`/ecom-ops/milestones/${id}/invoice`),
+
+  // UrbanFit
+  updateOrderStatus: (id, status) => api.patch(`/urbanfit-ops/orders/${id}/status`, { status }),
+  getReturns: () => api.get('/urbanfit-ops/returns'),
+  createReturn: (data) => api.post('/urbanfit-ops/returns', data),
+
+  // School SaaS
+  getRenewals: () => api.get('/school-saas-ops/renewals'),
+  getSaaSMetrics: () => api.get('/school-saas-ops/metrics'),
+
+  // Physical School
+  getChallans: () => api.get('/physical-school-ops/challans'),
+  generateChallan: (data) => api.post('/physical-school-ops/challans/generate', data),
+  getEscalations: () => api.get('/physical-school-ops/defaulters/escalations'),
+
+  // IT Courses
+  getAttendance: (batchId) => api.get(`/it-courses-ops/batches/${batchId}/attendance`),
+  recordAttendance: (data) => api.post('/it-courses-ops/attendance', data),
+  getInstructorPayouts: () => api.get('/it-courses-ops/payouts'),
+  requestPayout: (data) => api.post('/it-courses-ops/payouts', data),
+
+  // Office
+  getVendors: () => api.get('/office-ops/vendors'),
+  createVendor: (data) => api.post('/office-ops/vendors', data),
+  getPOs: () => api.get('/office-ops/purchase-orders'),
+  createPO: (data) => api.post('/office-ops/purchase-orders', data),
 };
 
 export default api;

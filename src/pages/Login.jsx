@@ -24,7 +24,12 @@ const Login = () => {
         navigate('/');
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Login failed');
+      const serverError = err.response?.data;
+      if (serverError?.errors) {
+        serverError.errors.forEach(e => toast.error(e.msg));
+      } else {
+        toast.error(serverError?.message || 'Login failed');
+      }
     } finally {
       setLoading(false);
     }

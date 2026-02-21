@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../config/db.js';
+import { query as _query } from '../config/db.js';
 import auth from '../middleware/auth.js';
 import exceljs from 'exceljs';
 import PDFDocument from 'pdfkit';
@@ -8,27 +8,27 @@ const router = Router();
 const { Workbook } = exceljs;
 
 // GET /api/reports/monthly
-router.get('/monthly', auth, async (req, res) => {
+router.get('/monthly', auth, async (req, res, next) => {
   try {
     const { month, year } = req.query;
     const m = month || new Date().getMonth() + 1;
     const y = year || new Date().getFullYear();
 
-    const [revenue] = await query(`
+    const [revenue] = await _query(`
       SELECT bu.name, bu.code, COALESCE(SUM(r.amount), 0) as total
       FROM business_units bu
       LEFT JOIN revenues r ON bu.id = r.business_unit_id AND MONTH(r.date) = ? AND YEAR(r.date) = ?
       GROUP BY bu.id, bu.name, bu.code ORDER BY bu.id
     `, [m, y]);
 
-    const [expenses] = await query(`
+    const [expenses] = await _query(`
       SELECT bu.name, bu.code, COALESCE(SUM(e.amount), 0) as total
       FROM business_units bu
       LEFT JOIN expenses e ON bu.id = e.business_unit_id AND MONTH(e.date) = ? AND YEAR(e.date) = ?
       GROUP BY bu.id, bu.name, bu.code ORDER BY bu.id
     `, [m, y]);
 
-    const [totals] = await query(`
+    const [totals] = await _query(`
       SELECT 
         COALESCE((SELECT SUM(amount) FROM revenues WHERE MONTH(date) = ? AND YEAR(date) = ?), 0) as total_revenue,
         COALESCE((SELECT SUM(amount) FROM expenses WHERE MONTH(date) = ? AND YEAR(date) = ?), 0) as total_expenses
@@ -53,16 +53,16 @@ router.get('/monthly', auth, async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // GET /api/reports/yearly
-router.get('/yearly', auth, async (req, res) => {
+router.get('/yearly', auth, async (req, res, next) => {
   try {
     const y = req.query.year || new Date().getFullYear();
 
-    const [monthlyBreakdown] = await query(`
+    const [monthlyBreakdown] = await _query(`
       SELECT 
         m.month_num,
         m.month_name,
@@ -81,7 +81,7 @@ router.get('/yearly', auth, async (req, res) => {
       ORDER BY m.month_num
     `, [y, y]);
 
-    const [unitBreakdown] = await query(`
+    const [unitBreakdown] = await _query(`
       SELECT 
         bu.name, bu.code,
         COALESCE(rev.total, 0) as revenue,
@@ -113,12 +113,12 @@ router.get('/yearly', auth, async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    next(error);
   }
 });
 
 // GET /api/reports/export/excel
-router.get('/export/excel', auth, async (req, res) => {
+router.get('/export/excel', auth, async (req, res, next) => {
   try {
     const { type, year, month } = req.query;
     const y = year || new Date().getFullYear();
@@ -137,7 +137,7 @@ router.get('/export/excel', auth, async (req, res) => {
       { header: 'Margin %', key: 'margin', width: 15 }
     ];
 
-    const [unitData] = await query(`
+    const [unitData] = await _query(`
       SELECT bu.name,
         COALESCE(rev.total, 0) as revenue,
         COALESCE(exp.total, 0) as expenses,
@@ -182,7 +182,7 @@ router.get('/export/excel', auth, async (req, res) => {
     if (month) { revenueQuery += ' AND MONTH(r.date) = ?'; params.push(month); }
     revenueQuery += ' ORDER BY r.date DESC';
 
-    const [revenues] = await query(revenueQuery, params);
+    const [revenues] = await _query(revenueQuery, params);
     revenues.forEach(r => revenueSheet.addRow(r));
     revenueSheet.getRow(1).font = { bold: true };
 
@@ -203,7 +203,7 @@ router.get('/export/excel', auth, async (req, res) => {
     if (month) { expenseQuery += ' AND MONTH(e.date) = ?'; eParams.push(month); }
     expenseQuery += ' ORDER BY e.date DESC';
 
-    const [expenses] = await query(expenseQuery, eParams);
+    const [expenses] = await _query(expenseQuery, eParams);
     expenses.forEach(e => expenseSheet.addRow(e));
     expenseSheet.getRow(1).font = { bold: true };
 
@@ -213,18 +213,17 @@ router.get('/export/excel', auth, async (req, res) => {
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
-    console.error('Excel export error:', error);
-    res.status(500).json({ success: false, message: 'Export failed' });
+    next(error);
   }
 });
 
 // GET /api/reports/export/pdf
-router.get('/export/pdf', auth, async (req, res) => {
+router.get('/export/pdf', auth, async (req, res, next) => {
   try {
     const { year, month } = req.query;
     const y = year || new Date().getFullYear();
 
-    const [unitData] = await query(`
+    const [unitData] = await _query(`
       SELECT bu.name,
         COALESCE(rev.total, 0) as revenue,
         COALESCE(exp.total, 0) as expenses,
@@ -267,18 +266,18 @@ router.get('/export/pdf', auth, async (req, res) => {
     // Table header
     const tableTop = doc.y;
     const col1 = 50, col2 = 220, col3 = 320, col4 = 420;
-    
+
     doc.fontSize(11).font('Helvetica-Bold');
     doc.text('Business Unit', col1, tableTop);
     doc.text('Revenue', col2, tableTop);
     doc.text('Expenses', col3, tableTop);
     doc.text('Profit', col4, tableTop);
-    
+
     doc.moveTo(50, tableTop + 15).lineTo(520, tableTop + 15).stroke();
 
     let rowY = tableTop + 25;
     doc.font('Helvetica').fontSize(10);
-    
+
     unitData.forEach(unit => {
       if (rowY > 700) {
         doc.addPage();
@@ -299,8 +298,7 @@ router.get('/export/pdf', auth, async (req, res) => {
 
     doc.end();
   } catch (error) {
-    console.error('PDF export error:', error);
-    res.status(500).json({ success: false, message: 'Export failed' });
+    next(error);
   }
 });
 

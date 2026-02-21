@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { itCoursesAPI } from '../services/api';
 import SummaryCard from '../components/cards/SummaryCard';
 import DataTable, { CurrencyCell, StatusBadge } from '../components/tables/DataTable';
@@ -6,6 +7,9 @@ import { HiOutlineBookOpen, HiOutlineUserGroup, HiOutlineCash, HiOutlineCollecti
 import toast from 'react-hot-toast';
 
 const ITCoursesPanel = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'courses';
+
   const [data, setData] = useState({
     overview: null,
     courses: [],
@@ -13,7 +17,6 @@ const ITCoursesPanel = () => {
     enrollments: [],
     trainers: []
   });
-  const [activeTab, setActiveTab] = useState('courses');
   const [showModal, setShowModal] = useState(null);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,12 @@ const ITCoursesPanel = () => {
       setForm({});
       loadData();
     } catch (error) {
-      toast.error('Operation failed');
+      const serverError = error.response?.data;
+      if (serverError?.errors) {
+        serverError.errors.forEach(err => toast.error(err.msg));
+      } else {
+        toast.error(serverError?.message || 'Operation failed');
+      }
     }
   };
 
@@ -90,6 +98,7 @@ const ITCoursesPanel = () => {
     { header: 'Batch', key: 'batch_name' },
     { header: 'Paid', key: 'fee_paid', render: (val) => <CurrencyCell value={val} /> },
     { header: 'Pending', key: 'fee_pending', render: (val) => <CurrencyCell value={val} className="text-red-400" /> },
+    { header: 'Approval', key: 'approval_status', render: (val) => <StatusBadge status={val} /> },
     { header: 'Status', key: 'status', render: (val) => <StatusBadge status={val} /> },
   ];
 
@@ -122,7 +131,7 @@ const ITCoursesPanel = () => {
       {/* Tabs */}
       <div className="flex gap-1 bg-dark-800 p-1 rounded-lg overflow-x-auto">
         {['courses', 'batches', 'enrollments'].map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => setSearchParams({ tab })}
             className={`px-4 py-2 rounded-md text-sm font-medium capitalize whitespace-nowrap transition-colors
               ${activeTab === tab ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white hover:bg-dark-700'}`}>
             {tab}
@@ -169,7 +178,7 @@ const ITCoursesPanel = () => {
                       <input className="input" placeholder="e.g. 3 Months" value={form.duration || ''} onChange={e => setForm({ ...form, duration: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Fee</label>
-                    <input type="number" className="input" required value={form.fee || ''} onChange={e => setForm({ ...form, fee: e.target.value })} /></div>
+                    <input type="number" step="0.01" min="0" className="input" required value={form.fee || ''} onChange={e => setForm({ ...form, fee: e.target.value })} /></div>
                   <div><label className="label">Description</label>
                     <textarea className="input h-24" value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })}></textarea></div>
                 </>

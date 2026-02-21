@@ -12,6 +12,8 @@ import PhysicalSchoolPanel from './pages/PhysicalSchoolPanel';
 import ITCoursesPanel from './pages/ITCoursesPanel';
 import OfficeExpensesPanel from './pages/OfficeExpensesPanel';
 import Reports from './pages/Reports';
+import Approvals from './pages/Approvals';
+import Finance from './pages/Finance';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -43,6 +45,8 @@ function App() {
             <Route path="it-courses" element={<ITCoursesPanel />} />
             <Route path="office" element={<OfficeExpensesPanel />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="approvals" element={<Approvals />} />
+            <Route path="finance" element={<Finance />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

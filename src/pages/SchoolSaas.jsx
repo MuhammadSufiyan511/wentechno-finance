@@ -5,6 +5,7 @@ import DataTable, { CurrencyCell, StatusBadge } from '../components/tables/DataT
 import { HiOutlineAcademicCap, HiOutlineRefresh, HiOutlineCash, HiOutlineChartBar, HiOutlinePlus } from 'react-icons/hi';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import toast from 'react-hot-toast';
+import { opsAPI } from '../services/api';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
 
@@ -13,7 +14,9 @@ const SchoolSaas = () => {
     overview: null,
     schools: [],
     revenues: [],
-    expenses: []
+    expenses: [],
+    renewals: [],
+    metrics: {}
   });
   const [activeTab, setActiveTab] = useState('overview');
   const [showModal, setShowModal] = useState(null);
@@ -24,15 +27,19 @@ const SchoolSaas = () => {
 
   const loadData = async () => {
     try {
-      const [overviewRes, schoolsRes] = await Promise.all([
+      const [overviewRes, schoolsRes, renewalsRes, metricsRes] = await Promise.all([
         schoolSaasAPI.getOverview(),
-        schoolSaasAPI.getSchools()
+        schoolSaasAPI.getSchools(),
+        opsAPI.getRenewals(),
+        opsAPI.getSaaSMetrics()
       ]);
       setData({
         overview: overviewRes.data.data,
         schools: schoolsRes.data.data,
-        revenues: [], // Populated if needed from overview or separate call
-        expenses: []  // Populated if needed
+        renewals: renewalsRes.data.data,
+        metrics: metricsRes.data.data,
+        revenues: [],
+        expenses: []
       });
     } catch (error) {
       toast.error('Failed to load School SaaS data');
@@ -55,7 +62,12 @@ const SchoolSaas = () => {
       setForm({});
       loadData();
     } catch (error) {
-      toast.error('Operation failed');
+      const serverError = error.response?.data;
+      if (serverError?.errors) {
+        serverError.errors.forEach(err => toast.error(err.msg));
+      } else {
+        toast.error(serverError?.message || 'Operation failed');
+      }
     }
   };
 
@@ -95,65 +107,83 @@ const SchoolSaas = () => {
       {data.overview && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <SummaryCard title="Active Schools" value={data.overview.activeSchools} icon={HiOutlineAcademicCap} color="blue" />
-          <SummaryCard title="Total MRR" value={data.overview.totalMRR} icon={HiOutlineRefresh} color="green" />
-          <SummaryCard title="Average ARPU" value={data.overview.averageARPU} icon={HiOutlineChartBar} color="purple" />
-          <SummaryCard title="Churn Rate" value={`${data.overview.churnRate}%`} icon={HiOutlineChartBar} color="red" />
+          <SummaryCard title="Total MRR" value={data.metrics?.total_mrr || 0} icon={HiOutlineRefresh} color="green" />
+          <SummaryCard title="Total ARR" value={data.metrics?.total_arr || 0} icon={HiOutlineChartBar} color="purple" />
+          <SummaryCard title="Churn (This Month)" value={data.metrics?.churn || 0} subtitle="Schools lost" icon={HiOutlineChartBar} color="red" />
         </div>
       )}
 
+      <div className="flex gap-1 bg-dark-800 p-1 rounded-lg overflow-x-auto mb-6">
+        {['overview', 'schools', 'renewals'].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors
+              ${activeTab === tab ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white hover:bg-dark-700'}`}>
+            {tab}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Partner Schools</h3>
-            <div className="flex gap-1 bg-dark-900 p-1 rounded-lg">
-              {['all', 'active', 'trial'].map(t => (
-                <button key={t} className="px-3 py-1 text-xs rounded-md capitalize text-dark-400 hover:text-white">
-                  {t}
-                </button>
-              ))}
+        {activeTab === 'schools' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Partner Schools</h3>
+              </div>
+              <DataTable columns={schoolColumns} data={data.schools} />
+            </div>
+
+            <div className="card">
+              <h3 className="text-lg font-semibold text-white mb-6">Plan Distribution</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={planData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {planData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                    <Legend verticalAlign="bottom" height={36} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
-          <DataTable columns={schoolColumns} data={data.schools} />
-        </div>
+        )}
 
-        <div className="card">
-          <h3 className="text-lg font-semibold text-white mb-6">Plan Distribution</h3>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={planData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {planData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Legend verticalAlign="bottom" height={36} />
-              </PieChart>
-            </ResponsiveContainer>
+        {activeTab === 'renewals' && (
+          <div className="card">
+            <h3 className="text-lg font-semibold text-white mb-4">Upcoming Renewals (Next 60 Days)</h3>
+            <DataTable
+              columns={[
+                { header: 'School', key: 'school_name' },
+                { header: 'Plan', key: 'plan' },
+                { header: 'Amount', key: 'amount', render: (v) => <CurrencyCell value={v} /> },
+                { header: 'Next Billing', key: 'next_billing_date', render: (v) => new Date(v).toLocaleDateString() },
+                { header: 'Status', key: 'status', render: (v) => <StatusBadge status={v} /> }
+              ]}
+              data={data.renewals}
+            />
           </div>
-          <div className="mt-6 space-y-3">
-            {planData.map((p, i) => (
-              <div key={p.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-                  <span className="text-sm text-dark-300 capitalize">{p.name}</span>
-                </div>
-                <span className="text-sm font-medium text-white">{p.value} schools</span>
-              </div>
-            ))}
+        )}
+
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Move original dashboard content here if needed or just keep current layout */}
           </div>
-        </div>
+        )}
       </div>
 
       {showModal && (
@@ -166,33 +196,33 @@ const SchoolSaas = () => {
               {showModal === 'school' ? (
                 <>
                   <div><label className="label">School Name</label>
-                    <input className="input" required value={form.school_name||''} onChange={e=>setForm({...form,school_name:e.target.value})} /></div>
+                    <input className="input" required value={form.school_name || ''} onChange={e => setForm({ ...form, school_name: e.target.value })} /></div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="label">Plan</label>
-                      <select className="select" value={form.plan||'basic'} onChange={e=>setForm({...form,plan:e.target.value})}>
+                      <select className="select" value={form.plan || 'basic'} onChange={e => setForm({ ...form, plan: e.target.value })}>
                         <option value="basic">Basic</option>
                         <option value="standard">Standard</option>
                         <option value="premium">Premium</option>
                         <option value="enterprise">Enterprise</option>
                       </select></div>
                     <div><label className="label">Monthly Fee</label>
-                      <input type="number" className="input" required value={form.monthly_fee||''} onChange={e=>setForm({...form,monthly_fee:e.target.value})} /></div>
+                      <input type="number" step="0.01" min="0" className="input" required value={form.monthly_fee || ''} onChange={e => setForm({ ...form, monthly_fee: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Contact Person</label>
-                    <input className="input" value={form.contact_person||''} onChange={e=>setForm({...form,contact_person:e.target.value})} /></div>
+                    <input className="input" value={form.contact_person || ''} onChange={e => setForm({ ...form, contact_person: e.target.value })} /></div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="label">Email</label>
-                      <input type="email" className="input" value={form.email||''} onChange={e=>setForm({...form,email:e.target.value})} /></div>
+                      <input type="email" className="input" value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
                     <div><label className="label">Phone</label>
-                      <input className="input" value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
+                      <input className="input" value={form.phone || ''} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Join Date</label>
-                    <input type="date" className="input" required value={form.join_date||''} onChange={e=>setForm({...form,join_date:e.target.value})} /></div>
+                    <input type="date" className="input" required value={form.join_date || ''} onChange={e => setForm({ ...form, join_date: e.target.value })} /></div>
                 </>
               ) : (
                 <>
                   <div><label className="label">Category</label>
-                    <select className="select" required value={form.category||''} onChange={e=>setForm({...form,category:e.target.value})}>
+                    <select className="select" required value={form.category || ''} onChange={e => setForm({ ...form, category: e.target.value })}>
                       <option value="">Select Category</option>
                       <option value="Server">Server/Hosting</option>
                       <option value="Development">Development</option>
@@ -201,11 +231,11 @@ const SchoolSaas = () => {
                       <option value="Other">Other</option>
                     </select></div>
                   <div><label className="label">Amount</label>
-                    <input type="number" className="input" required value={form.amount||''} onChange={e=>setForm({...form,amount:e.target.value})} /></div>
+                    <input type="number" step="0.01" min="0.01" className="input" required value={form.amount || ''} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
                   <div><label className="label">Description</label>
-                    <textarea className="input h-24" value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})}></textarea></div>
+                    <textarea className="input h-24" value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })}></textarea></div>
                   <div><label className="label">Date</label>
-                    <input type="date" className="input" required value={form.date||''} onChange={e=>setForm({...form,date:e.target.value})} /></div>
+                    <input type="date" className="input" required value={form.date || ''} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
                 </>
               )}
               <div className="flex gap-3 pt-4">

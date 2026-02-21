@@ -5,20 +5,15 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../config/db.js';
 import auth from '../middleware/auth.js';
 
+import { validate, loginRules } from '../middleware/validator.js';
+
 const router = Router();
 const { compare, hash } = bcrypt;
 const { sign } = jwt;
 
 // POST /api/auth/login
-router.post('/login', [
-  body('username').notEmpty().withMessage('Username is required'),
-  body('password').notEmpty().withMessage('Password is required')
-], async (req, res) => {
+router.post('/login', validate(loginRules), async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
 
     const { username, password } = req.body;
 
@@ -28,9 +23,9 @@ router.post('/login', [
     );
 
     if (users.length === 0) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
       });
     }
 
@@ -38,9 +33,9 @@ router.post('/login', [
     const isMatch = await compare(password, user.password);
 
     if (!isMatch) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
       });
     }
 
@@ -93,9 +88,9 @@ router.post('/setup', async (req, res) => {
   try {
     const [existing] = await query('SELECT COUNT(*) as count FROM users');
     if (existing[0].count > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Setup already completed' 
+      return res.status(400).json({
+        success: false,
+        message: 'Setup already completed'
       });
     }
 

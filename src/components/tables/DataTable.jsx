@@ -41,6 +41,7 @@ export const StatusBadge = ({ status }) => {
   const statusMap = {
     paid: 'badge-success', completed: 'badge-success', active: 'badge-success', delivered: 'badge-success',
     pending: 'badge-warning', in_progress: 'badge-warning', partial: 'badge-warning', stitching: 'badge-warning',
+    approved: 'badge-success', rejected: 'badge-danger',
     cutting: 'badge-warning', finishing: 'badge-warning', ready: 'badge-info', upcoming: 'badge-info',
     draft: 'badge-info', sent: 'badge-info', trial: 'badge-info',
     overdue: 'badge-danger', cancelled: 'badge-danger', churned: 'badge-danger',

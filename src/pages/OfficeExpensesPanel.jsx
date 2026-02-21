@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { officeAPI } from '../services/api';
 import SummaryCard from '../components/cards/SummaryCard';
 import DataTable, { CurrencyCell, StatusBadge } from '../components/tables/DataTable';
@@ -9,12 +10,14 @@ import toast from 'react-hot-toast';
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316'];
 
 const OfficeExpensesPanel = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'expenses';
+
   const [data, setData] = useState({
     overview: null,
     expenses: [],
     salaries: []
   });
-  const [activeTab, setActiveTab] = useState('expenses');
   const [showModal, setShowModal] = useState(null);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
@@ -51,7 +54,12 @@ const OfficeExpensesPanel = () => {
       setForm({});
       loadData();
     } catch (error) {
-      toast.error('Operation failed');
+      const serverError = error.response?.data;
+      if (serverError?.errors) {
+        serverError.errors.forEach(err => toast.error(err.msg));
+      } else {
+        toast.error(serverError?.message || 'Operation failed');
+      }
     }
   };
 
@@ -74,6 +82,7 @@ const OfficeExpensesPanel = () => {
     { header: 'Description', key: 'description' },
     { header: 'Amount', key: 'amount', render: (val) => <CurrencyCell value={val} /> },
     { header: 'Date', key: 'date', render: (val) => new Date(val).toLocaleDateString() },
+    { header: 'Approval', key: 'approval_status', render: (val) => <StatusBadge status={val} /> },
     {
       header: 'Actions', key: 'id', render: (val) => (
         <button onClick={() => handleDeleteExpense(val)} className="text-red-400 hover:text-red-300">
@@ -153,7 +162,7 @@ const OfficeExpensesPanel = () => {
       {/* Tabs */}
       <div className="flex gap-1 bg-dark-800 p-1 rounded-lg overflow-x-auto">
         {['expenses', 'salaries'].map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => setSearchParams({ tab })}
             className={`px-4 py-2 rounded-md text-sm font-medium capitalize whitespace-nowrap transition-colors
               ${activeTab === tab ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white hover:bg-dark-700'}`}>
             {tab}
@@ -197,7 +206,7 @@ const OfficeExpensesPanel = () => {
                     </select></div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="label">Amount</label>
-                      <input type="number" className="input" required value={form.amount || ''} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
+                      <input type="number" step="0.01" min="0.01" className="input" required value={form.amount || ''} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
                     <div><label className="label">Type</label>
                       <select className="select" value={form.expense_type || 'variable'} onChange={e => setForm({ ...form, expense_type: e.target.value })}>
                         <option value="fixed">Fixed Cost</option>
@@ -218,13 +227,13 @@ const OfficeExpensesPanel = () => {
                     <div><label className="label">Designation</label>
                       <input className="input" value={form.designation || ''} onChange={e => setForm({ ...form, designation: e.target.value })} /></div>
                     <div><label className="label">Base Salary</label>
-                      <input type="number" className="input" required value={form.base_salary || ''} onChange={e => setForm({ ...form, base_salary: e.target.value })} /></div>
+                      <input type="number" step="0.01" min="0.01" className="input" required value={form.base_salary || ''} onChange={e => setForm({ ...form, base_salary: e.target.value })} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="label">Month</label>
                       <input className="input" placeholder="e.g. October" required value={form.month || ''} onChange={e => setForm({ ...form, month: e.target.value })} /></div>
                     <div><label className="label">Year</label>
-                      <input type="number" className="input" required value={form.year || new Date().getFullYear()} onChange={e => setForm({ ...form, year: e.target.value })} /></div>
+                      <input type="number" min="2000" max="2100" className="input" required value={form.year || new Date().getFullYear()} onChange={e => setForm({ ...form, year: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Business Unit</label>
                     <select className="select" required value={form.business_unit_id || ''} onChange={e => setForm({ ...form, business_unit_id: e.target.value })}>
