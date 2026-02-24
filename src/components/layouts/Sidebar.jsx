@@ -21,7 +21,7 @@ const navItems = [
   { path: '/physical-school', icon: HiOutlineAcademicCap, label: 'Physical School', color: 'text-amber-400' },
   { path: '/it-courses', icon: HiOutlineBookOpen, label: 'IT Courses', color: 'text-red-400' },
   { path: '/office', icon: HiOutlineOfficeBuilding, label: 'Office & General', color: 'text-gray-400' },
-  { path: '/finance', icon: HiOutlineCurrencyDollar, label: 'Advanced Finance', color: 'text-emerald-500' },
+  // { path: '/finance', icon: HiOutlineCurrencyDollar, label: 'Advanced Finance', color: 'text-emerald-500' },
   { path: '/approvals', icon: HiOutlineChartPie, label: 'Pending Approvals', color: 'text-yellow-400' },
   { path: '/reports', icon: HiOutlineDocumentReport, label: 'Reports & Export', color: 'text-cyan-400' },
 ];

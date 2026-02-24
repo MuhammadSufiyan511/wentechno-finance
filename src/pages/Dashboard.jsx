@@ -13,7 +13,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Global Filters from URL
+  // Global filters from URL
   const startDate = searchParams.get('start') || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
   const endDate = searchParams.get('end') || new Date().toISOString().split('T')[0];
   const searchTerm = searchParams.get('q') || '';
@@ -29,16 +29,16 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadDashboard();
-  }, [startDate, endDate]); // Reload when date filters change
+  }, [startDate, endDate, searchTerm]);
 
   const loadDashboard = async () => {
     try {
+      setLoading(true);
       setError('');
-      // In a real app, we'd pass { startDate, endDate, searchTerm } to API
       const res = await dashboardAPI.getOverview({ start: startDate, end: endDate, q: searchTerm });
       setData(res.data.data);
-    } catch (error) {
-      const message = error?.response?.data?.message || 'Failed to load dashboard data';
+    } catch (err) {
+      const message = err?.response?.data?.message || 'Failed to load dashboard data';
       setError(message);
       toast.error(message);
     } finally {
@@ -62,10 +62,7 @@ const Dashboard = () => {
           {error || 'Could not load dashboard data from the backend.'}
         </p>
         <button
-          onClick={() => {
-            setLoading(true);
-            loadDashboard();
-          }}
+          onClick={loadDashboard}
           className="btn-primary mt-4"
         >
           Retry
@@ -73,7 +70,15 @@ const Dashboard = () => {
       </div>
     );
   }
+
   const { summary, revenueByUnit, expenseBreakdown, monthlyTrends, profitByUnit, recentTransactions } = data;
+  const showTrend = Boolean(summary?.hasActivity);
+  const safeGrowth = showTrend ? Number(summary?.growthRate || 0) : 0;
+  const rangeStartText = data?.filters?.start || startDate;
+  const rangeEndText = data?.filters?.end || endDate;
+  const monthRevenueText = Number(summary?.revenue?.monthly || 0).toLocaleString();
+  const monthExpenseText = Number(summary?.expenses?.monthly || 0).toLocaleString();
+  const pendingText = Number(summary?.pendingReceivables || 0).toLocaleString();
 
   const transactionColumns = [
     {
@@ -91,11 +96,10 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-white">CEO Dashboard</h1>
-          <p className="text-dark-400 mt-1">Complete financial overview across all business units</p>
+          <p className="text-dark-400 mt-1">Complete financial overview ({rangeStartText} to {rangeEndText})</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -134,20 +138,19 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Summary Cards - Row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
-          title="Total Revenue (Yearly)"
+          title="Total Revenue (Range)"
           value={summary.revenue.yearly}
-          subtitle={`Monthly: ₨ ${summary.revenue.monthly.toLocaleString()}`}
+          subtitle={`Month to date: Rs ${monthRevenueText}`}
           icon={HiOutlineCurrencyDollar}
           color="blue"
-          trend={summary.growthRate}
+          trend={showTrend ? safeGrowth : undefined}
         />
         <SummaryCard
-          title="Total Expenses (Yearly)"
+          title="Total Expenses (Range)"
           value={summary.expenses.yearly}
-          subtitle={`Monthly: ₨ ${summary.expenses.monthly.toLocaleString()}`}
+          subtitle={`Month to date: Rs ${monthExpenseText}`}
           icon={HiOutlineTrendingDown}
           color="red"
         />
@@ -161,36 +164,31 @@ const Dashboard = () => {
         <SummaryCard
           title="Cash Flow"
           value={summary.cashFlow}
-          subtitle={`Pending: ₨ ${summary.pendingReceivables.toLocaleString()}`}
+          subtitle={`Pending: Rs ${pendingText}`}
           icon={HiOutlineCash}
           color="purple"
         />
       </div>
 
-      {/* Summary Cards - Row 2 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <SummaryCard title="Daily Revenue" value={summary.revenue.daily} icon={HiOutlineChartBar} color="cyan" />
-        <SummaryCard title="Daily Expenses" value={summary.expenses.daily} icon={HiOutlineReceiptRefund} color="amber" />
+        <SummaryCard title={`Revenue (${rangeEndText})`} value={summary.revenue.daily} icon={HiOutlineChartBar} color="cyan" />
+        <SummaryCard title={`Expenses (${rangeEndText})`} value={summary.expenses.daily} icon={HiOutlineReceiptRefund} color="amber" />
         <SummaryCard title="Profit Margin" value={`${summary.profitMargin}%`} icon={HiOutlineTrendingUp} color="green" />
-        <SummaryCard title="Growth Rate" value={`${summary.growthRate}%`} icon={HiOutlineTrendingUp} color="purple" trend={summary.growthRate} />
+        <SummaryCard title="Growth vs Previous Period" value={`${safeGrowth}%`} icon={HiOutlineTrendingUp} color="purple" trend={showTrend ? safeGrowth : undefined} />
       </div>
 
-      {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TrendLineChart data={monthlyTrends} title="Monthly Revenue, Expenses & Profit Trends" />
         <ProfitAreaChart data={monthlyTrends} title="Revenue vs Expenses Over Time" />
       </div>
 
-      {/* Charts Row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RevenueBarChart data={revenueByUnit} title="Revenue by Business Unit" />
         <ExpensePieChart data={expenseBreakdown} title="Expense Distribution" />
       </div>
 
-      {/* Profit Comparison */}
       <ProfitComparisonChart data={profitByUnit} title="Profit/Loss Comparison by Business Unit" />
 
-      {/* Recent Transactions */}
       <div className="card">
         <h3 className="text-lg font-semibold text-white mb-4">Recent Transactions</h3>
         <DataTable columns={transactionColumns} data={recentTransactions} />

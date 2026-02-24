@@ -6,6 +6,7 @@ import { logAudit } from '../middleware/auditTrail.js';
 import { checkPeriodClose } from '../middleware/checkPeriodClose.js';
 import { approvalRequired } from '../middleware/approvalRequired.js';
 import { validate, transactionRules, invoiceRules, clientRules, projectRules } from '../middleware/validator.js';
+import { monthToNumber } from '../utils/dateUtils.js';
 
 const router = Router();
 const BU_ID = 1; // Ecom business unit ID
@@ -14,8 +15,10 @@ const MODULE = 'ecom';
 // GET /api/ecom/overview
 router.get('/overview', auth, async (req, res, next) => {
   try {
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
+    const { month, year } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    let currentMonth = monthToNumber(month);
+    if (!currentMonth) currentMonth = new Date().getMonth() + 1;
 
     const [totalRevenue] = await _query(
       'SELECT COALESCE(SUM(amount), 0) as total FROM revenues WHERE business_unit_id = ? AND YEAR(date) = ?',
@@ -59,6 +62,29 @@ router.get('/overview', auth, async (req, res, next) => {
       [BU_ID]
     );
 
+    const [revenueTrend] = await _query(`
+      SELECT 
+        DATE_FORMAT(date, '%b %Y') as month,
+        SUM(amount) as revenue
+      FROM revenues 
+      WHERE business_unit_id = ? 
+      AND date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+      GROUP BY YEAR(date), MONTH(date)
+      ORDER BY YEAR(date), MONTH(date)
+    `, [BU_ID]);
+
+    const [projectStatusDist] = await _query(`
+      SELECT status as name, COUNT(*) as value 
+      FROM projects 
+      GROUP BY status
+    `);
+
+    const [invoiceStatusDist] = await _query(`
+      SELECT status as name, COUNT(*) as value 
+      FROM invoices 
+      GROUP BY status
+    `);
+
     const rev = parseFloat(totalRevenue[0].total);
     const exp = parseFloat(totalExpenses[0].total);
 
@@ -72,9 +98,34 @@ router.get('/overview', auth, async (req, res, next) => {
         monthlyRevenue: parseFloat(monthlyRevenue[0].total),
         projectStats: projectStats[0],
         invoiceStats: invoiceStats[0],
-        subscriptionRevenue: parseFloat(subscriptionRevenue[0].total)
+        subscriptionRevenue: parseFloat(subscriptionRevenue[0].total),
+        trends: {
+          revenue: revenueTrend,
+          projectStatus: projectStatusDist,
+          invoiceStatus: invoiceStatusDist
+        }
       }
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reset panel data for testing
+router.post('/reset', auth, async (req, res, next) => {
+  try {
+    // Child-to-parent deletion order for FK safety
+    await _query('DELETE FROM project_milestones');
+    await _query('DELETE FROM invoices');
+    await _query('DELETE FROM quotes');
+    await _query('DELETE FROM projects');
+    await _query('DELETE FROM clients');
+    await _query('DELETE FROM subscriptions WHERE business_unit_id = ?', [BU_ID]);
+    await _query('DELETE FROM revenues WHERE business_unit_id = ?', [BU_ID]);
+    await _query('DELETE FROM expenses WHERE business_unit_id = ?', [BU_ID]);
+    await _query('DELETE FROM transactions WHERE business_unit_id = ?', [BU_ID]);
+
+    res.json({ success: true, message: 'Ecom panel data reset successfully' });
   } catch (error) {
     next(error);
   }
@@ -111,6 +162,61 @@ router.post('/clients', auth, validate(clientRules), async (req, res, next) => {
     });
 
     res.status(201).json({ success: true, data: client[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/clients/:id', auth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [oldClient] = await _query('SELECT * FROM clients WHERE id = ?', [id]);
+    if (oldClient.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    const fields = req.body;
+    const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+    const values = Object.values(fields);
+    if (!updates) return res.status(400).json({ success: false, message: 'No fields provided for update' });
+
+    await _query(`UPDATE clients SET ${updates} WHERE id = ?`, [...values, id]);
+    const [client] = await _query('SELECT * FROM clients WHERE id = ?', [id]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'update',
+      module: 'clients',
+      entityId: id,
+      oldValues: oldClient[0],
+      newValues: client[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.json({ success: true, data: client[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/clients/:id', auth, checkPeriodClose, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [client] = await _query('SELECT * FROM clients WHERE id = ?', [id]);
+    if (client.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    await _query('DELETE FROM clients WHERE id = ?', [id]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'delete',
+      module: 'clients',
+      entityId: id,
+      oldValues: client[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.json({ success: true, message: 'Client deleted successfully' });
   } catch (error) {
     next(error);
   }
@@ -210,6 +316,30 @@ router.put('/projects/:id', auth, checkPeriodClose, async (req, res, next) => {
   }
 });
 
+router.delete('/projects/:id', auth, checkPeriodClose, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [project] = await _query('SELECT * FROM projects WHERE id = ?', [id]);
+    if (project.length === 0) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    await _query('DELETE FROM projects WHERE id = ?', [id]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'delete',
+      module: 'projects',
+      entityId: id,
+      oldValues: project[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.json({ success: true, message: 'Project deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // --- INVOICES ---
 router.get('/invoices', auth, async (req, res, next) => {
   try {
@@ -287,6 +417,30 @@ router.put('/invoices/:id', auth, checkPeriodClose, async (req, res, next) => {
     });
 
     res.json({ success: true, data: invoice[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/invoices/:id', auth, checkPeriodClose, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [invoice] = await _query('SELECT * FROM invoices WHERE id = ?', [id]);
+    if (invoice.length === 0) return res.status(404).json({ success: false, message: 'Invoice not found' });
+
+    await _query('DELETE FROM invoices WHERE id = ?', [id]);
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'delete',
+      module: 'invoices',
+      entityId: id,
+      oldValues: invoice[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.json({ success: true, message: 'Invoice deleted successfully' });
   } catch (error) {
     next(error);
   }

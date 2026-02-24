@@ -49,12 +49,53 @@ router.post('/quotes', auth, async (req, res, next) => {
     }
 });
 
+router.put('/quotes/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const fields = req.body;
+        const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+        const values = Object.values(fields);
+        if (!updates) return res.status(400).json({ success: false, message: 'No fields provided for update' });
+
+        await _query(`UPDATE quotes SET ${updates} WHERE id = ?`, [...values, id]);
+        const [quote] = await _query('SELECT * FROM quotes WHERE id = ?', [id]);
+        if (quote.length === 0) return res.status(404).json({ success: false, message: 'Quote not found' });
+        res.json({ success: true, data: quote[0] });
+    } catch (error) {
+        if (error?.code === MISSING_TABLE_ERROR) {
+            return res.status(503).json({
+                success: false,
+                message: 'Quotes module is not initialized in the database yet.'
+            });
+        }
+        next(error);
+    }
+});
+
 router.patch('/quotes/:id/status', auth, async (req, res, next) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
         await _query('UPDATE quotes SET status = ? WHERE id = ?', [status, id]);
         res.json({ success: true, message: 'Quote status updated' });
+    } catch (error) {
+        if (error?.code === MISSING_TABLE_ERROR) {
+            return res.status(503).json({
+                success: false,
+                message: 'Quotes module is not initialized in the database yet.'
+            });
+        }
+        next(error);
+    }
+});
+
+router.delete('/quotes/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const [quote] = await _query('SELECT * FROM quotes WHERE id = ?', [id]);
+        if (quote.length === 0) return res.status(404).json({ success: false, message: 'Quote not found' });
+        await _query('DELETE FROM quotes WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Quote deleted successfully' });
     } catch (error) {
         if (error?.code === MISSING_TABLE_ERROR) {
             return res.status(503).json({

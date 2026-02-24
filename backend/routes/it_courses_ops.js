@@ -3,6 +3,7 @@ import { query as _query } from '../config/db.js';
 import auth from '../middleware/auth.js';
 
 const router = Router();
+const BU_ID = 5;
 
 // ============ ATTENDANCE ============
 
@@ -36,13 +37,21 @@ router.post('/attendance', auth, async (req, res, next) => {
 
 router.get('/payouts', auth, async (req, res, next) => {
     try {
+        const { status } = req.query;
+        let where = '';
+        const params = [];
+        if (status) {
+            where = 'WHERE p.status = ?';
+            params.push(status);
+        }
         const [payouts] = await _query(`
       SELECT p.*, t.name as trainer_name, b.batch_name 
       FROM instructor_payouts p 
       JOIN trainers t ON p.trainer_id = t.id 
       LEFT JOIN batches b ON p.batch_id = b.id 
+      ${where}
       ORDER BY p.payout_date DESC
-    `);
+    `, params);
         res.json({ success: true, data: payouts });
     } catch (error) {
         next(error);
@@ -59,6 +68,40 @@ router.post('/payouts', auth, async (req, res, next) => {
         );
 
         res.status(201).json({ success: true, message: 'Payout requested' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.patch('/payouts/:id/status', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+        if (!['pending', 'approved', 'rejected', 'paid'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid payout status' });
+        }
+        if (status === 'approved' || status === 'rejected') {
+            if (req.user.role !== 'CEO') {
+                return res.status(403).json({ success: false, message: 'Only CEO can approve/reject payouts' });
+            }
+        }
+
+        const [rows] = await _query('SELECT * FROM instructor_payouts WHERE id = ?', [id]);
+        if (!rows.length) return res.status(404).json({ success: false, message: 'Payout not found' });
+        const payout = rows[0];
+
+        await _query('UPDATE instructor_payouts SET status = ?, notes = ? WHERE id = ?', [status, notes || payout.notes || null, id]);
+
+        if (status === 'paid' && payout.status !== 'paid') {
+            await _query(
+                `INSERT INTO expenses (business_unit_id, category, expense_type, amount, description, vendor, date, approval_status)
+                 VALUES (?, ?, ?, ?, ?, ?, CURDATE(), 'na')`,
+                [BU_ID, 'Trainer Payout', 'fixed', payout.amount, `Instructor payout #${id}`, null]
+            );
+        }
+
+        const [updated] = await _query('SELECT * FROM instructor_payouts WHERE id = ?', [id]);
+        res.json({ success: true, data: updated[0], message: `Payout ${status}` });
     } catch (error) {
         next(error);
     }

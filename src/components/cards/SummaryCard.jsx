@@ -1,6 +1,6 @@
 import React from 'react';
 
-const SummaryCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = 'blue', className = '' }) => {
+const SummaryCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = 'blue', className = '', raw = false }) => {
   const colorMap = {
     blue: 'from-blue-500 to-blue-700',
     green: 'from-emerald-500 to-emerald-700',
@@ -39,7 +39,7 @@ const SummaryCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, co
         <div className="flex-1">
           <p className="text-sm text-dark-400 font-medium">{title}</p>
           <p className="text-2xl lg:text-3xl font-bold text-white mt-2">
-            {typeof value === 'number' ? formatValue(value) : value}
+            {raw ? value : (typeof value === 'number' ? formatValue(value) : value)}
           </p>
           {subtitle && <p className="text-sm text-dark-400 mt-1">{subtitle}</p>}
           {trend !== undefined && (
@@ -52,8 +52,8 @@ const SummaryCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, co
         </div>
         {Icon && (
           <div className={`p-3 rounded-xl border ${bgColorMap[color]}`}>
-            <Icon className={`w-6 h-6 bg-gradient-to-r ${colorMap[color]} bg-clip-text text-transparent`} 
-                  style={{ color: color === 'blue' ? '#3b82f6' : color === 'green' ? '#10b981' : color === 'red' ? '#ef4444' : color === 'purple' ? '#8b5cf6' : color === 'amber' ? '#f59e0b' : color === 'cyan' ? '#06b6d4' : color === 'pink' ? '#ec4899' : '#6b7280' }} />
+            <Icon className={`w-6 h-6 bg-gradient-to-r ${colorMap[color]} bg-clip-text text-transparent`}
+              style={{ color: color === 'blue' ? '#3b82f6' : color === 'green' ? '#10b981' : color === 'red' ? '#ef4444' : color === 'purple' ? '#8b5cf6' : color === 'amber' ? '#f59e0b' : color === 'cyan' ? '#06b6d4' : color === 'pink' ? '#ec4899' : '#6b7280' }} />
           </div>
         )}
       </div>

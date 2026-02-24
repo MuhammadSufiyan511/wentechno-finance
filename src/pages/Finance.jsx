@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { financeAPI, dashboardAPI } from '../services/api';
 import SummaryCard from '../components/cards/SummaryCard';
 import DataTable, { CurrencyCell, StatusBadge } from '../components/tables/DataTable';
-import { HiOutlineLibrary, HiOutlineTrendingUp, HiOutlineReceiptTax, HiOutlineLightBulb, HiOutlineRefresh, HiOutlinePlus } from 'react-icons/hi';
+import { HiOutlineLibrary, HiOutlineTrendingUp, HiOutlineReceiptTax, HiOutlineLightBulb, HiOutlineRefresh, HiOutlinePlus, HiOutlineChartPie } from 'react-icons/hi';
 import toast from 'react-hot-toast';
 
 const Finance = () => {
@@ -217,7 +217,7 @@ const Finance = () => {
                 {activeTab === 'scenarios' && (
                     <div className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {data.scenarios.map(s => (
+                            {(data.scenarios || []).map(s => (
                                 <div key={s.id} className="card border-primary-500/20">
                                     <h4 className="text-white font-bold">{s.name}</h4>
                                     <p className="text-dark-400 text-sm mt-1">{s.description}</p>

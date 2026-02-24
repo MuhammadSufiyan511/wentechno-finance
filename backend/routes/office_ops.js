@@ -29,6 +29,29 @@ router.post('/vendors', auth, async (req, res, next) => {
     }
 });
 
+router.put('/vendors/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const fields = req.body;
+        const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+        const values = Object.values(fields);
+        await _query(`UPDATE vendors SET ${updates} WHERE id = ?`, [...values, id]);
+        res.json({ success: true, message: 'Vendor updated' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.delete('/vendors/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await _query('DELETE FROM vendors WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Vendor deleted' });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // ============ PROCUREMENT (PO) ============
 
 router.get('/purchase-orders', auth, async (req, res, next) => {
@@ -56,6 +79,29 @@ router.post('/purchase-orders', auth, async (req, res, next) => {
         );
 
         res.status(201).json({ success: true, data: { po_number } });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.put('/purchase-orders/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const fields = req.body;
+        const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+        const values = Object.values(fields);
+        await _query(`UPDATE purchase_orders SET ${updates} WHERE id = ?`, [...values, id]);
+        res.json({ success: true, message: 'Purchase order updated' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.delete('/purchase-orders/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await _query('DELETE FROM purchase_orders WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Purchase order deleted' });
     } catch (error) {
         next(error);
     }

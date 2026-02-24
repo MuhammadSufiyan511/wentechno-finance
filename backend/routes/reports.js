@@ -3,6 +3,7 @@ import { query as _query } from '../config/db.js';
 import auth from '../middleware/auth.js';
 import exceljs from 'exceljs';
 import PDFDocument from 'pdfkit';
+import { monthToNumber } from '../utils/dateUtils.js';
 
 const router = Router();
 const { Workbook } = exceljs;
@@ -11,7 +12,8 @@ const { Workbook } = exceljs;
 router.get('/monthly', auth, async (req, res, next) => {
   try {
     const { month, year } = req.query;
-    const m = month || new Date().getMonth() + 1;
+    let m = monthToNumber(month);
+    if (!m) m = new Date().getMonth() + 1;
     const y = year || new Date().getFullYear();
 
     const [revenue] = await _query(`
@@ -179,7 +181,8 @@ router.get('/export/excel', auth, async (req, res, next) => {
     let revenueQuery = `SELECT r.date, bu.name as business_unit, r.category, r.amount, r.payment_status as status, r.description
                         FROM revenues r JOIN business_units bu ON r.business_unit_id = bu.id WHERE YEAR(r.date) = ?`;
     const params = [y];
-    if (month) { revenueQuery += ' AND MONTH(r.date) = ?'; params.push(month); }
+    const mNum = monthToNumber(month);
+    if (mNum) { revenueQuery += ' AND MONTH(r.date) = ?'; params.push(mNum); }
     revenueQuery += ' ORDER BY r.date DESC';
 
     const [revenues] = await _query(revenueQuery, params);
@@ -200,7 +203,8 @@ router.get('/export/excel', auth, async (req, res, next) => {
     let expenseQuery = `SELECT e.date, bu.name as business_unit, e.category, e.expense_type, e.amount, e.description
                         FROM expenses e JOIN business_units bu ON e.business_unit_id = bu.id WHERE YEAR(e.date) = ?`;
     const eParams = [y];
-    if (month) { expenseQuery += ' AND MONTH(e.date) = ?'; eParams.push(month); }
+    const emNum = monthToNumber(month);
+    if (emNum) { expenseQuery += ' AND MONTH(e.date) = ?'; eParams.push(emNum); }
     expenseQuery += ' ORDER BY e.date DESC';
 
     const [expenses] = await _query(expenseQuery, eParams);

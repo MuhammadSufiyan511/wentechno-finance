@@ -29,8 +29,24 @@ router.get('/metrics', auth, async (req, res, next) => {
     try {
         const [metrics] = await _query(`
       SELECT 
-        SUM(mrr) as total_mrr, 
-        SUM(arr) as total_arr,
+        COALESCE(SUM(
+          CASE billing_cycle
+            WHEN 'monthly' THEN amount
+            WHEN 'quarterly' THEN amount / 3
+            WHEN 'semi_annual' THEN amount / 6
+            WHEN 'yearly' THEN amount / 12
+            ELSE amount
+          END
+        ), 0) as total_mrr,
+        COALESCE(SUM(
+          CASE billing_cycle
+            WHEN 'monthly' THEN amount * 12
+            WHEN 'quarterly' THEN amount * 4
+            WHEN 'semi_annual' THEN amount * 2
+            WHEN 'yearly' THEN amount
+            ELSE amount * 12
+          END
+        ), 0) as total_arr,
         COUNT(*) as total_active_subs
       FROM subscriptions 
       WHERE business_unit_id = ? AND status = 'active'

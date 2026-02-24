@@ -81,4 +81,47 @@ router.post('/returns', auth, async (req, res, next) => {
     }
 });
 
+router.put('/returns/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const [oldReturn] = await _query('SELECT * FROM urbanfit_returns WHERE id = ?', [id]);
+        if (oldReturn.length === 0) return res.status(404).json({ success: false, message: 'Return not found' });
+
+        const fields = req.body;
+        const updates = Object.keys(fields).map(k => `${k} = ?`).join(', ');
+        const values = Object.values(fields);
+        if (!updates) return res.status(400).json({ success: false, message: 'No fields provided for update' });
+
+        await _query(`UPDATE urbanfit_returns SET ${updates} WHERE id = ?`, [...values, id]);
+        const [ret] = await _query('SELECT * FROM urbanfit_returns WHERE id = ?', [id]);
+        res.json({ success: true, data: ret[0] });
+    } catch (error) {
+        if (error?.code === MISSING_TABLE_ERROR) {
+            return res.status(503).json({
+                success: false,
+                message: 'Returns module is not initialized in the database yet.'
+            });
+        }
+        next(error);
+    }
+});
+
+router.delete('/returns/:id', auth, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const [ret] = await _query('SELECT * FROM urbanfit_returns WHERE id = ?', [id]);
+        if (ret.length === 0) return res.status(404).json({ success: false, message: 'Return not found' });
+        await _query('DELETE FROM urbanfit_returns WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Return deleted successfully' });
+    } catch (error) {
+        if (error?.code === MISSING_TABLE_ERROR) {
+            return res.status(503).json({
+                success: false,
+                message: 'Returns module is not initialized in the database yet.'
+            });
+        }
+        next(error);
+    }
+});
+
 export default router;
